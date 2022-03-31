@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# This script contains the necessary routines to use the WhoSGlAd method
+# (Farnir et al. 2019). It can either be run as a main script or 
+# imported as a module to use individual routines. The script uses a 
+# configuration file, WhoSGlAd_cfg.py, to define several variables. 
+# Another script, pltutils.py, is imported to define a few handy 
+# functions and variables to plot the results. It is however far from
+# being essential and may easily be replaced.
 import numpy as np
 import os
 import sys
@@ -767,7 +774,7 @@ def __run__():
     sys.exit('Use: ./WhoSGlAd.py <freqfile>')
   freqfile = args[1]
   prefix = freqfile.split('.')[:-1][0] # remove extension
-  modes = get_freq(freqfile)
+  modes = get_freq(freqfile,config.idxlist)
   print('Modes used for fitting:')
   for mode in modes:
     mode.print_me()
