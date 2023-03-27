@@ -13,13 +13,15 @@ import math
 import WhoSGlAd_cfg as config
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from scipy.optimize import minimize_scalar
+
 import pltutils as pltu
 
 class Mode:
   """
   A class defining oscilation modes
   """
-  def __init__(self,_n,_l,_value,_sigma):
+  def __init__(self,_n:int,_l:int,_value:float,_sigma:float):
     """
     Initialises the Mode object.
 
@@ -35,18 +37,46 @@ class Mode:
     :param _sigma: uncertainty on frequency (expected to be in muHz).
     :type _sigma: float
     """
-    self.n     = _n
-    self.l     = _l
-    self.value = _value
-    self.sigma = _sigma
+    self.n     = int(_n)
+    self.l     = int(_l)
+    self.value = float(_value)
+    self.sigma = float(_sigma)
 
   def print_me(self):
     """
     Print mode
     """
-    print("l={:d}, n={:d}, freq={:.3f} +- {:.2e} (muHz)".format(int(self.l), int(self.n), self.value, self.sigma))
+    print("l={:d}, n={:2d}, freq={:.3f} +- {:.2e} (muHz)".format(int(self.l), int(self.n), self.value, self.sigma))
     
-def get_freq(freqfile,idxlist={'l':0,'n':1,'freq':2,'sigma':3}):
+  def __str__(self):
+    """
+    Formatting of mode
+    """
+    return "l={:d}, n={:d}, freq={:.3f} +- {:.2e} (muHz)".format(int(self.l), int(self.n), self.value, self.sigma)
+
+def sort_ln(modes):
+  """
+  Sorts a list of modes according to their l and n values
+
+  :param modes: a list of modes to be sorted
+  :type modes: list(Mode)
+  """
+  # Sort l values
+  for i,m in enumerate(modes):
+      for j,n in enumerate(modes[:i+1]):
+          if n.l > m.l:
+              temp     = modes[j]
+              modes[j] = modes[i]
+              modes[i] = temp
+  # Sort n values
+  for i,m in enumerate(modes):
+      for j,n in enumerate(modes[:i+1]):
+          if n.n > m.n and n.l == m.l :
+              temp     = modes[j]
+              modes[j] = modes[i]
+              modes[i] = temp
+    
+def get_freq(freqfile:str,idxlist={'l':0,'n':1,'freq':2,'sigma':3},target=None):
   """
   Reads the frequency file <freqfile> and returns a vector of modes of 
   class Mode <modes>.
@@ -54,12 +84,21 @@ def get_freq(freqfile,idxlist={'l':0,'n':1,'freq':2,'sigma':3}):
   :param idxlist: a list containing the ordering of nu, n, l and sig in
                   the reference file
   :type idxlist: int
+
+  :param target: a list of target l and n values, enables to work with 
+                 subsets of data if not None
+  :type target: tuple(int,int)
   """
   if not(os.path.exists(freqfile)):
     sys.exit('{:s} file missing'.format(freqfile))
   with open(freqfile,'r') as f:
     lines = f.readlines()
-    modes = [Mode(float(line.split()[idxlist['n']]),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for line in lines if line.lstrip()[0]!='#']
+    # Last condition ignores any line starting with anything else than a number
+    if target != None:
+        modes = [Mode(float(line.split()[idxlist['n']]),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for line in lines if (ord(line.lstrip()[0]) in range(48,58) and (int(line.split()[idxlist['l']]),int(line.split()[idxlist['n']])) in target)]
+    else:
+        modes = [Mode(float(line.split()[idxlist['n']]),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for line in lines if ord(line.lstrip()[0]) in range(48,58)]
+  sort_ln(modes)
   return modes
 
 class Indicator:
@@ -76,16 +115,29 @@ class Seismic:
   Class of seismic constraints
   """
   # Default list of seismic indicators (to enforce their ordering)
-  indic_list=['Dnu','Dnu0','Dnu1','Dnu2','Dnu3','r01','r02','r03','Delta01','Delta02','Delta03','eps','eps0','eps1','eps2','eps3','AHe','ACZ']
+  indic_list=['Dnu','Dnu0','Dnu1','Dnu2','Dnu3','r01','r02','r03',\
+              'Delta01','Delta02','Delta03','eps','eps0','eps1','eps2',\
+              'eps3','nu_avg','nu_avg0','nu_avg1','nu_avg2','nu_avg3',\
+              'AHe','AHe_prime','ACZ','phiHe']
 
   def __init__(self,_indic_list=indic_list):
     self.modes      = [] # Set of 'observed' modes
     self.fit        = [] # Set of fitted modes
     self.Rkkinv     = None # Inverse R matrix of tranformation
-    self.qkinv      = None # Normalised basis vector
+    self.qk         = None # Normalised basis vector
+    self.ak         = None # Projection coefficients
     self.indicators = {key:Indicator() for key in _indic_list} # Computed indicators, stored in a dict.
 
-  def find_l_list(self, l_targets, npowers=2):
+  def clean_basis(self):
+    """
+    Ensures the basis elements are empty. Useful when iterating over the
+    acoustic depth
+    """
+    self.Rkkinv = None
+    self.qk     = None
+    self.ak     = None
+
+  def find_l_list(self, l_targets=None, npowers=2):
       """
       Find a list of l values with the following properties:
       
@@ -152,7 +204,7 @@ class Seismic:
           result += v1[i]*v2[i]/self.modes[i].sigma**2
       return result
 
-  def construct_whosglad_basis(self,maxpower=2,glitchpower=-5):
+  def construct_whosglad_basis(self,maxpower=2,glitchpower=-5,chiprint=True):
       """
       Construct orthogonal basis for the smooth component of a pulsation spectrum
       using the Gram-Schmidt orthonormalisation method as described in the WhoSGlAd
@@ -166,7 +218,9 @@ class Seismic:
       """
 
       # easy exit:
-      if ((self.Rkkinv is not None) and (self.qk is not None)): return
+      if ((self.Rkkinv is not None) and (self.qk is not None)): 
+        print('Basis already exists, nothing has been done')
+        return
 
       l_list = self.find_l_list(None,npowers=maxpower+1)
       n = len(self.modes)
@@ -210,21 +264,25 @@ class Seismic:
       # sanity check:
       freq_fit = np.zeros((n,),dtype=np.float64)
       freq_vec = np.array([mode.value for mode in self.modes])
+      self.ak = [self.dot_product_whosglad(self.qk[:,j],freq_vec) \
+                 for j in range(nt)]
       for j in range(nt):
-          akl = self.dot_product_whosglad(self.qk[:,j],freq_vec)
-          freq_fit += akl*self.qk[:,j]
+#          akl = self.dot_product_whosglad(self.qk[:,j],freq_vec)
+          freq_fit += self.ak[j]*self.qk[:,j]
           if (j == (maxpower+1)*nl-1):
               dfreq1 = freq_fit-np.array(freq_vec)
           if (j == (maxpower+1)*nl+3):
               dfreq2 = freq_fit-np.array(freq_vec)
       dfreq3 = freq_fit-np.array(freq_vec)
-      self.fit = [Mode(self.modes[i].n,self.modes[i].l,f,self.modes[i].sigma) for i,f in enumerate(freq_fit)]
+      self.fit = [Mode(self.modes[i].n,self.modes[i].l,f, \
+                  self.modes[i].sigma) for i,f in enumerate(freq_fit)]
       chis = self.dot_product_whosglad(dfreq1,dfreq1)
       chiHe = self.dot_product_whosglad(dfreq2,dfreq2)
       chiHeCZ = self.dot_product_whosglad(dfreq3,dfreq3)
-      print("{:>12}: {:e}".format("chi2(smooth)",chis))
-      print("{:>12}: {:e}".format("chi2(He)",chiHe))
-      print("{:>12}: {:e}".format("chi2(He+CZ)",chiHeCZ))
+      if chiprint:
+        print("{:>12}: {:e}".format("chi2(smooth)",chis))
+        print("{:>12}: {:e}".format("chi2(He)",chiHe))
+        print("{:>12}: {:e}".format("chi2(He+CZ)",chiHeCZ))
       return chis,chiHe,chiHeCZ
 
   def compute_whosglad_dnu_constraint(self,l_targets=None, maxpower=2):
@@ -242,7 +300,7 @@ class Seismic:
       """
 
       # If the basis does not exist, construct it
-      if ((self.Rkkinv is None) and (self.qkinv is None)): self.construct_whosglad_basis()
+      if ((self.Rkkinv is None) and (self.qk is None)): self.construct_whosglad_basis()
 
       l_list_ref = self.find_l_list(None,npowers=maxpower+1)
       l_list = self.find_l_list(l_targets,npowers=maxpower+1)
@@ -390,9 +448,8 @@ class Seismic:
         al1 = self.dot_product_whosglad(self.qk[:,ndxl+1],freq_vec)
         value = (al0*self.Rkkinv[ndxl,ndxl]+al1*self.Rkkinv[ndxl,ndxl+1])\
               / al1/self.Rkkinv[ndxl+1,ndxl+1]-0.5*l_target
-        sig = (self.Rkkinv[ndxl,ndxl]**2+self.Rkkinv[ndxl,ndxl+1]**2\
-               +(al0*self.Rkkinv[ndxl,ndxl]+al1*self.Rkkinv[ndxl,ndxl+1])**2\
-                /al1**2)/(al1*self.Rkkinv[ndxl+1,ndxl+1])**2
+        sig = (1.+(al0/al1)**2)*(self.Rkkinv[ndxl,ndxl]/al1 \
+            / self.Rkkinv[ndxl+1,ndxl+1])**2
       else:
         key = 'eps'
         value = 0
@@ -444,6 +501,56 @@ class Seismic:
 
       self.indicators[key] = Indicator(value,np.sqrt(sig))
 
+  def compute_whosglad_nu_avg_constraint(self,l_targets=None, maxpower=2):
+      """
+      Computes the average frequency for a set of spherical degrees 
+      <l_targets>.
+
+      :param l_targets: specifies for which l values the frequency
+             average is to be calculated.  If ``None`` is supplied, 
+             modes will be used to build an averaged value.
+      :type l_targets: list of int
+
+      :param maxpower: maximum power in Pj(n)=n^j polynomial
+      :type maxpower: int
+      """
+
+      # If the basis does not exist, construct it
+      if ((self.Rkkinv is None) and (self.qk is None)): self.construct_whosglad_basis()
+
+      l_list_ref = self.find_l_list(None,npowers=maxpower+1)
+      l_list = self.find_l_list(l_targets,npowers=maxpower+1)
+
+      # easy exit:
+      if (len(l_list) == 0):
+          print("WARNING: unable to compute WhoSGlAd frequency average constraint.")
+          print("         Try computeing observed frequencies.")
+          return
+
+      n = len(self.modes)
+      nu_avg = 0
+      nu_avgSig = 0
+
+      if (len(l_list) == 1):
+        name = 'nu_avg{:d}'.format(l_list[0])
+        ndx = (maxpower+1)*l_list_ref.index(l_list[0])
+        nu_avg = self.ak[ndx]*self.Rkkinv[ndx,ndx]
+        nu_avgSig = self.Rkkinv[ndx,ndx]
+      else:
+        indices = [(maxpower+1)*l_list_ref.index(l) for l in l_list]
+        name = 'nu_avg'
+
+        den = 0.0 
+        num = 0.0
+        for ndx in indices:
+          den += 1.0/self.Rkkinv[ndx,ndx]**2
+          num += self.ak[ndx]/self.Rkkinv[ndx,ndx]
+          nu_avgSig += 1./self.Rkkinv[ndx,ndx]**2
+        nu_avg = num/den
+        nu_avgSig = np.sqrt(nu_avgSig)/den
+
+      self.indicators[name] = Indicator(nu_avg,nu_avgSig)
+
   def compute_whosglad_AHe_constraint(self, maxpower=2):
       """
       Computes the helium glitch amplitude.
@@ -459,6 +566,25 @@ class Seismic:
       val = sum([(self.dot_product_whosglad(self.qk[:,ndx+i],freq_vec))\
                  **2 for i in range(4)])
       self.indicators['AHe'] = Indicator(np.sqrt(val),1.)
+
+  def compute_whosglad_AHe_prime_constraint(self, maxpower=2):
+      """
+      Computes the alternate helium glitch amplitude, with sigma scaling
+      with uncertainties.
+         
+      :param maxpower: maximum power in Pj(n)=n^j polynomial
+      :type maxpower: int
+      """
+
+      l_list = self.find_l_list(None,npowers=maxpower+1)
+      ndxl = lambda l: (maxpower+1)*l_list.index(l)
+      nl = len(l_list)
+      ndx = (maxpower+1)*nl # Starting index for He basis elements
+      freq_vec = np.array([mode.value for mode in self.modes])
+      val = sum([(self.dot_product_whosglad(self.qk[:,ndx+i],freq_vec))\
+                 **2 for i in range(4)])
+      sig_sum = np.sqrt(sum([1./self.Rkkinv[ndxl(l),ndxl(l)]**2 for l in l_list]))
+      self.indicators['AHe_prime'] = Indicator(np.sqrt(val)/sig_sum,1./sig_sum)
 
   def compute_whosglad_ACZ_constraint(self, maxpower=2):
       """
@@ -476,6 +602,33 @@ class Seismic:
                  **2 for i in range(2)])
       self.indicators['ACZ'] = Indicator(np.sqrt(val),1.)
 
+  def compute_whosglad_phiHe_constraint(self, maxpower=2):
+      """
+      Computes the phase of the helium glitch.
+         
+      :param maxpower: maximum power in Pj(n)=n^j polynomial
+      :type maxpower: int
+      """
+
+      l_list = self.find_l_list(None,npowers=maxpower+1)
+      ndxl = lambda l: (maxpower+1)*l_list.index(l)
+      nl = len(l_list)
+      ndx = (maxpower+1)*nl # Starting index for He basis elements
+      freq_vec = np.array([mode.value for mode in self.modes])
+      arg = (self.Rkkinv[ndx,ndx+1] + self.Rkkinv[ndx,ndx]             \
+          * self.dot_product_whosglad(self.qk[:,ndx],freq_vec)         \
+          / self.dot_product_whosglad(self.qk[:,ndx+1],freq_vec))      \
+          / self.Rkkinv[ndx+1,ndx+1]
+      val =  np.pi/2.-np.arctan(arg)
+      sig = (1./(1.+arg**2))**2*((self.Rkkinv[ndx,ndx]                 \
+          / self.dot_product_whosglad(self.qk[:,ndx+1],freq_vec)       \
+          / self.Rkkinv[ndx+1,ndx+1])**2                               \
+          + (self.dot_product_whosglad(self.qk[:,ndx],freq_vec)        \
+          * self.Rkkinv[ndx,ndx]                                       \
+          / self.dot_product_whosglad(self.qk[:,ndx+1],freq_vec)**2    \
+          / self.Rkkinv[ndx+1,ndx+1])**2)
+      self.indicators['phiHe'] = Indicator(val,np.sqrt(sig))
+
   def compute_indicators(self):
     """
     Computes the complete set of defined seismic indicators. For an 
@@ -490,9 +643,13 @@ class Seismic:
         self.compute_whosglad_ratio_constraint(l_target=int(l))
         self.compute_whosglad_Delta_constraint(l_target=int(l))
       self.compute_whosglad_eps_constraint(l_target=int(l))
+      self.compute_whosglad_nu_avg_constraint(l_targets=[int(l)])
     self.compute_whosglad_eps_constraint()
+    self.compute_whosglad_nu_avg_constraint()
     self.compute_whosglad_AHe_constraint()
+    self.compute_whosglad_AHe_prime_constraint()
     self.compute_whosglad_ACZ_constraint()
+    self.compute_whosglad_phiHe_constraint()
 
   def print_indicators(self,prefix='results',save=True):
     """
@@ -509,12 +666,33 @@ class Seismic:
     lines = ['#Indicators computed from '+prefix+'\n']
     for key in self.indicators:
       if self.indicators[key].value == None: continue # Skip undefined indicators
-      line = '{:>8s}: {:7.4e} +- {:7.4e}'.format(key,self.indicators[key].value,self.indicators[key].sigma)
+      line = '{:>10s}: {: 9.6e} +- {:9.6e}'.format(key,self.indicators[key].value,self.indicators[key].sigma)
       print(line)
       lines = np.append(lines,line+'\n')
     if save:
       with open(prefix+'-indicators.txt','w') as f:
         f.writelines(lines)
+
+  def print_akl(self,maxpower=2,l_targets=None,prefix='results',save=False):
+    l_list = self.find_l_list(l_targets)
+    nl = len(l_list)
+    nt = (maxpower+1)*nl + 6
+    lines = ['#Coefficients computed from '+prefix+'\n', \
+             '{:>4s} {:>4s} {:>9s}\n'.format('l','k','akl')]
+    for l in l_list:
+        for k in range(maxpower+1):
+            line = '{:4d} {:4d} {: 9.6e}'.format(l,k,self.ak[k+l*(maxpower+1)])
+            lines = np.append(lines,line+'\n')
+    for k in range(maxpower+1,maxpower+5):
+        line = '{:>4s} {:4d} {: 9.6e}'.format('He',k,self.ak[k+nl*(maxpower)])
+        lines = np.append(lines,line+'\n')
+    for k in range(maxpower+5,maxpower+7):
+        line = '{:>4s} {:4d} {: 9.6e}'.format('CZ',k,self.ak[k+nl*(maxpower)])
+        lines = np.append(lines,line+'\n')
+    if save:
+      with open(prefix+'-coefficients.txt','w') as f:
+        f.writelines(lines)
+
 
   def echelle(self,l_targets=None,colors=pltu.colors,prefix='results',save=True):
     """"
@@ -656,14 +834,9 @@ class Seismic:
                            for j in range(maxpower+6)])
     smonl = lambda n,l : sum([ali(l,i)*self.qk[n,ndxl(l)+i] for i in range(3)])
         
-#    for l in l_list: # Compute the individual glitches at ref points
-#      mask = [int(i) for i in range(n) if self.modes[i].l == l]
-#      CZ[mask] = [CZx(ntilde(i)) for i in mask]
-#      He[mask] = [Hex(ntilde(i)) for i in mask]
-
     nmin = min([self.modes[i].n for i in range(n)])
     nmax = max([self.modes[i].n for i in range(n)])
-    step = float(nmax-nmin)/npt
+    step = float(nmax-nmin+1)/npt
     smo = np.array([smox(nmin+step*i) for i in range(npt)])
     Hes = np.array([Hex(nmin+step*i) for i in range(npt)])
     CZs = np.array([CZx(nmin+step*i) for i in range(npt)])
@@ -677,7 +850,8 @@ class Seismic:
       mask = [int(i) for i in range(n) if self.modes[i].l == l]
       nul = [self.modes[i].value for i in mask]
       sigl = [self.modes[i].sigma for i in mask]
-      Res[mask] = [self.modes[i].value-smonl(i,l) for i in mask]
+      # Residuals of fit + glitch
+      Res[mask] = [self.modes[i].value-self.fit[i].value+CZx(ntilde(i))+Hex(ntilde(i)) for i in mask]
       ax.errorbar(nul,Res[mask],yerr=sigl,linestyle='none',label='l={:d}'.format(int(l)),**pltu.err_pars(c=colors[i]))
     # Continuous fitted glitch plotting
     ax.plot(smo+Hes+CZs,Hes,color='k',linestyle='--',label='He')
@@ -742,10 +916,28 @@ class Seismic:
     for l in l_list: 
       mask = [int(i) for i in range(n) if self.modes[i].l == l]
       for i in mask:
-        line = (2*'{:4d}'+3*'{:15.7e}'+'\n').format(int(self.modes[i].l),int(self.modes[i].n),self.modes[i].value,self.fit[i].value,self.modes[i].sigma) 
+        line = ('{:5d}{:4d}'+3*'{:15.7e}'+'\n').format(int(self.modes[i].l),int(self.modes[i].n),self.modes[i].value,self.fit[i].value,self.modes[i].sigma) 
         lines = np.append(lines,line)
     with open(prefix+'-fit.txt','w') as f:
       f.writelines(lines)
+
+def lin_THe(Dnu,r02):
+  """
+  Estimation of T_He via a linear relation between T_He, Dnu and r02 as
+  developped in A. Valentino's thesis work (see also Farnir, Valentino 
+  et al. 2022)
+
+  :param Dnu: Large frequency separation estimated via WhoSGlAd
+  :type Dnu: float
+
+  :param r02: Mean frequency ratio between degrees l=0 and 2 estimated 
+              via WhoSGlAd
+  :type r02: float
+  """
+  a=7.146379e-05
+  b=-2.408797e-01
+  c=7.658794e-02
+  return a*Dnu+b*r02+c
 
 def show_logo():
   """
@@ -764,6 +956,50 @@ def show_logo():
   ' ||___\ V  V /____________ ___) | |_| | __________________ ;;;;;; _____\n'
   '       \_/\_/             /____/ \____|                    `;;;;\'\n')
 
+def chi_of_tau(THe,modes=None):
+  """
+  From a value of tau, compute the chi squared value of the adjustment
+  including the helium gltch contribution
+
+  :param THe: Dimensionless helium glitch acoustic depth
+  :type THe: float
+
+  :param modes: Reference modes that are to be adjusted
+  :type modes: WhoSGlAd Mode class
+  """
+  if modes == None:
+     sys.exit('Missing modes argument')
+  # Store the value to be used by the routines
+  config.T_He = THe
+  # Instanciate the seismic type object to store basis and indicators
+  fitModes = Seismic()
+  # Ensures no basis is associated to the object yet
+  fitModes.clean_basis()
+  # Attribute reference modes
+  fitModes.modes = modes
+  # Build the basis and output chi square
+  chis,chiHe,chiHeCZ = fitModes.construct_whosglad_basis(chiprint=False)
+  return chiHe
+
+def optimise_tau(fitModes,modes):
+  """
+  From the value of tau stored in config.T_He, optimise over its value
+  and return the optimum
+
+  :param fitModes: Instance of WhoSGlAd Mode class containing the 
+    result of the fit
+  :type modes: WhoSGlAd Mode class
+
+  :param modes: Reference modes that are to be adjusted
+  :type modes: WhoSGlAd Mode class
+  """
+  # Empty the basis to compute a new basis with T_He estimate
+  fitModes.clean_basis()
+  chis,chiHe,chiHeCZ = fitModes.construct_whosglad_basis()
+  fitModes.compute_indicators()
+  best = minimize_scalar(chi_of_tau,bracket=(0.75*config.T_He,1.25*config.T_He),bounds=(0.7*config.T_He,1.5*config.T_He),method='Bounded',args=(modes)) 
+  return best.x
+
 def __run__():
   """
   Runs the complete WhoSGlAd procedure
@@ -773,8 +1009,14 @@ def __run__():
   if len(args) < 2:
     sys.exit('Use: ./WhoSGlAd.py <freqfile>')
   freqfile = args[1]
-  prefix = freqfile.split('.')[:-1][0] # remove extension
-  modes = get_freq(freqfile,config.idxlist)
+  print('Analysing {:s}'.format(freqfile))
+  # Remove extension
+  prefix = freqfile.split('.')
+  if prefix[:-1] != []: # If any extension
+    prefix = prefix[:-1][0]
+  else:
+    prefix = prefix[0]
+  modes = get_freq(freqfile,config.idxlist,config.target_ln)
   print('Modes used for fitting:')
   for mode in modes:
     mode.print_me()
@@ -782,15 +1024,27 @@ def __run__():
   fitModes = Seismic()
   fitModes.modes = modes
   chis,chiHe,chiHeCZ = fitModes.construct_whosglad_basis()
+  fitModes.compute_indicators()
+  if(config.T_Est):
+    config.T_He = lin_THe(fitModes.indicators['Dnu'].value,fitModes.indicators['r02'].value)
+    print()
+    print('With linear T_He estimate of {:e}'.format(config.T_He))
+    config.T_He = optimise_tau(fitModes,modes)
+    print()
+    print('With optimised T_He estimate of {:e}'.format(config.T_He))
+    fitModes.clean_basis()
+    chis,chiHe,chiHeCZ = fitModes.construct_whosglad_basis()
+    fitModes.compute_indicators()
   print()
   print('Fitted modes:')
   for fit in fitModes.fit:
     fit.print_me()
   fitModes.save_freq([chis,chiHe,chiHeCZ],l_targets=None,prefix=prefix)
-  fitModes.compute_indicators()
   print()
   fitModes.print_indicators(prefix=prefix,save=True)
-  fitModes.plot(l_targets=None,colors=pltu.colors,prefix=prefix,save=True)
+  fitModes.print_akl(prefix=prefix,save=config.save_coefs)
+  if config.plot:
+    fitModes.plot(l_targets=None,colors=pltu.colors,prefix=prefix,save=config.save_plots,show=config.show_plots)
 
 if __name__ == '__main__':
 # When used as a main script
