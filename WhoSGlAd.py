@@ -10,12 +10,84 @@ import numpy as np
 import os
 import sys
 import math
-import WhoSGlAd_cfg as config
+#import WhoSGlAd_cfg as config
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from scipy.optimize import minimize_scalar
+import pathlib
 
 import pltutils as pltu
+
+class Cfg:
+# Defaults
+    T_He = 0.75591E-01 # 16CygA
+    T_CZ = 0.30240E+00 # 16CygA
+    T_Est = True 
+    idxlist={'l':0,'n':1,'freq':2,'sigma':3}
+    target_ln=[(0,n) for n in range(13,26)] + [(1,n) for n in range(13,25)]\
+              +[(2,n) for n in range(12,25)]+[(3,n) for n in range(15,23)]
+    plot=True # Whether to produce plots
+    save_plots=True # Whether to save plots
+    show_plots=True # Whether to show plots
+    save_coefs=False # Whether to save akl coefficients
+
+    def __init__(self,T_He=T_He,T_CZ=T_CZ,T_Est=T_Est,idxlist=idxlist,target_ln=target_ln,plot=plot,save_plots=save_plots,show_plots=show_plots,save_coefs=save_coefs):
+        self.T_He       = T_He
+        self_T_CZ       = T_CZ
+        self.T_Est      = T_Est
+        self.idxlist    = idxlist
+        self.target_ln  = target_ln
+        self.plot       = plot
+        self.save_plots = save_plots
+        self.show_plots = show_plots
+        self.save_coefs = save_coefs
+
+    def read_cfg(self,cfgFile):
+        print(cfgFile)
+        with open(cfgFile,'r') as cfg:
+            lines = cfg.readlines()
+            for line in lines:
+                if len(line) == 1 or line[0] == '#':
+                    continue
+                self.set_cfg(line)
+
+    def set_cfg(self,line):
+        keys = line.split('=')
+        key = keys[0].strip()
+        val = keys[1].split('#')[0].strip()
+        if key == 'T_He':
+            self.T_He = float(val)
+        elif key == 'T_CZ':
+            self.T_CZ = float(val)
+        elif key == 'T_Est':
+            self.T_He = bool(val)
+        elif key == 'idxlist':
+            self.idxlist = eval(val)
+        elif key == 'target_ln':
+            self.target_ln = eval(val)
+        elif key == 'plot':
+            self.plot = bool(val)
+        elif key == 'save_plots':
+            self.save_plots = bool(val)
+        elif key == 'show_plots':
+            self.show_plots = bool(val)
+        elif key == 'save_coefs':
+            self.save_coefs = bool(val)
+        else:
+            print('set_cfg: Unrecognised key: {:s}'.format(keys[0]))
+
+    def print_cfg(self):
+        print('Configuration')
+        print('T_He: {:f}'.format(self.T_He))
+        print('T_CZ: {:f}'.format(self.T_CZ))
+        print('T_Est: {:b}'.format(self.T_Est))
+        print('idxlist: ',self.idxlist)
+        print('target_ln: ',self.target_ln)
+        print('plot: {:b}'.format(self.plot))
+        print('save pllots: {:b}'.format(self.save_plots))
+        print('show plots: {:b}'.format(self.show_plots))
+        print('save coefs.: {:b}'.format(self.save_coefs))
+        print()
 
 class Mode:
   """
@@ -109,6 +181,9 @@ class Indicator:
   def __init__(self,value=None,sigma=None):
     self.value = value
     self.sigma = sigma
+
+  def __str__(self):
+    return '{: 9.6e} +- {:9.6e}'.format(self.value,self.sigma)
 
 class Seismic:
   """
@@ -650,6 +725,10 @@ class Seismic:
     self.compute_whosglad_AHe_prime_constraint()
     self.compute_whosglad_ACZ_constraint()
     self.compute_whosglad_phiHe_constraint()
+    # Safeguarding when only one spherical degree 
+    if (len(l_list)==1):
+        self.indicators['Dnu'] = self.indicators['Dnu{:d}'.format(l_list[0])]
+        self.indicators['eps'] = self.indicators['eps{:d}'.format(l_list[0])]
 
   def print_indicators(self,prefix='results',save=True):
     """
@@ -683,10 +762,10 @@ class Seismic:
         for k in range(maxpower+1):
             line = '{:4d} {:4d} {: 9.6e}'.format(l,k,self.ak[k+l*(maxpower+1)])
             lines = np.append(lines,line+'\n')
-    for k in range(maxpower+1,maxpower+5):
-        line = '{:>4s} {:4d} {: 9.6e}'.format('He',k,self.ak[k+nl*(maxpower)])
+    for k in range(5):
+        line = '{:>4s} {:4d} {: 9.6e}'.format('He',k,self.ak[k+nl*(maxpower+1)])
         lines = np.append(lines,line+'\n')
-    for k in range(maxpower+5,maxpower+7):
+    for k in range(3):
         line = '{:>4s} {:4d} {: 9.6e}'.format('CZ',k,self.ak[k+nl*(maxpower)])
         lines = np.append(lines,line+'\n')
     if save:
@@ -718,7 +797,9 @@ class Seismic:
     fig,ax = plt.subplots(**pltu.fig_pars(1,1))
     l_list = self.find_l_list(l_targets)
     Dnu = self.indicators['Dnu'].value    
-    if Dnu == None: self.compute_dnu_constraint()
+    if Dnu == None: 
+        self.compute_whosglad_dnu_constraint()
+        Dnu = self.indicators['Dnu'].value    
     ncolors = len(colors)
     for i,l in enumerate(l_list):
       i %= ncolors # loop over the list of colors
@@ -729,6 +810,7 @@ class Seismic:
       plt.scatter(fitl%Dnu,fitl,edgecolor=colors[i],facecolor='none',marker='d')
       ax.set_xlabel(r'$\nu \% \Delta\nu~(\mu Hz)$')
       ax.set_ylabel(r'$\nu~(\mu Hz)$')
+      ax.set_xlim([0,Dnu]) # Makes sure the whole range is covered
 
       legend_elements = [Line2D([0], [0], marker='o',color='w',label='Ref',markeredgecolor='k',markerfacecolor='none',markersize=mks,lw=lw)] \
       + [Line2D([0], [0], marker='d',color='w',label='Fit',markeredgecolor='k',markerfacecolor='none',markersize=mks,lw=lw)] \
@@ -1000,9 +1082,9 @@ def optimise_tau(fitModes,modes):
   best = minimize_scalar(chi_of_tau,bracket=(0.75*config.T_He,1.25*config.T_He),bounds=(0.7*config.T_He,1.5*config.T_He),method='Bounded',args=(modes)) 
   return best.x
 
-def __run__():
+def __init__():
   """
-  Runs the complete WhoSGlAd procedure
+  Initialises WhoSGlAd
   """
   args = sys.argv
   show_logo()
@@ -1016,11 +1098,31 @@ def __run__():
     prefix = prefix[:-1][0]
   else:
     prefix = prefix[0]
+  config = Cfg()
+  here = pathlib.Path().resolve().as_posix()
+  whosPath = pathlib.Path(__file__).parent.resolve().as_posix()
+  try:
+    # Attempt to open the file
+    cfgFile = here+'/WhoSGlAd_cfg.py'
+    with open(cfgFile) as tmp:
+        config.read_cfg(cfgFile)
+  except FileNotFoundError:
+    print("Reading default configuration")
+    cfgFile = whosPath+'/WhoSGlAd_cfg.py'
+    with open(cfgFile) as tmp:
+        config.read_cfg(cfgFile)
   modes = get_freq(freqfile,config.idxlist,config.target_ln)
   print('Modes used for fitting:')
   for mode in modes:
     mode.print_me()
   print()
+  return config,prefix,modes
+
+
+def __run__(config,prefix,modes):
+  """
+  Runs the complete WhoSGlAd procedure
+  """
   fitModes = Seismic()
   fitModes.modes = modes
   chis,chiHe,chiHeCZ = fitModes.construct_whosglad_basis()
@@ -1045,7 +1147,10 @@ def __run__():
   fitModes.print_akl(prefix=prefix,save=config.save_coefs)
   if config.plot:
     fitModes.plot(l_targets=None,colors=pltu.colors,prefix=prefix,save=config.save_plots,show=config.show_plots)
+  return fitModes
 
 if __name__ == '__main__':
 # When used as a main script
-  __run__()
+  config,prefix,modes = __init__()
+  config.print_cfg()
+  __run__(config,prefix,modes)
