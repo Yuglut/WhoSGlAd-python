@@ -18,6 +18,9 @@ import pathlib
 
 import pltutils as pltu
 
+# Might be dirty: holds configuration
+config=None
+
 class Cfg:
 # Defaults
     T_He = 0.75591E-01 # 16CygA
@@ -41,9 +44,9 @@ class Cfg:
         self.save_plots = save_plots
         self.show_plots = show_plots
         self.save_coefs = save_coefs
+        self.parse_cfg()
 
     def read_cfg(self,cfgFile):
-        print(cfgFile)
         with open(cfgFile,'r') as cfg:
             lines = cfg.readlines()
             for line in lines:
@@ -60,19 +63,19 @@ class Cfg:
         elif key == 'T_CZ':
             self.T_CZ = float(val)
         elif key == 'T_Est':
-            self.T_He = bool(val)
+            self.T_Est = val == 'True'
         elif key == 'idxlist':
             self.idxlist = eval(val)
         elif key == 'target_ln':
             self.target_ln = eval(val)
         elif key == 'plot':
-            self.plot = bool(val)
+            self.plot = val == 'True'
         elif key == 'save_plots':
-            self.save_plots = bool(val)
+            self.save_plots = val == 'True'
         elif key == 'show_plots':
-            self.show_plots = bool(val)
+            self.show_plots = val == 'True'
         elif key == 'save_coefs':
-            self.save_coefs = bool(val)
+            self.save_coefs = val == 'True' 
         else:
             print('set_cfg: Unrecognised key: {:s}'.format(keys[0]))
 
@@ -84,10 +87,29 @@ class Cfg:
         print('idxlist: ',self.idxlist)
         print('target_ln: ',self.target_ln)
         print('plot: {:b}'.format(self.plot))
-        print('save pllots: {:b}'.format(self.save_plots))
+        print('save plots: {:b}'.format(self.save_plots))
         print('show plots: {:b}'.format(self.show_plots))
         print('save coefs.: {:b}'.format(self.save_coefs))
         print()
+
+    def parse_cfg(self):
+      here = pathlib.Path().resolve().as_posix()
+      if os.path.islink(__file__):
+          whosPath = os.readlink(__file__)
+      else:
+          whosPath = __file__
+      whosPath = pathlib.Path(whosPath).parent.resolve().as_posix()
+      try:
+        # Attempt to open the file
+        cfgFile = here+'/WhoSGlAd_cfg.py'
+        with open(cfgFile) as tmp:
+            self.read_cfg(cfgFile)
+      except FileNotFoundError:
+        cfgFile = whosPath+'/WhoSGlAd_cfg.py'
+        print("Reading default configuration: "+cfgFile)
+        with open(cfgFile) as tmp:
+            self.read_cfg(cfgFile)
+
 
 class Mode:
   """
@@ -118,7 +140,7 @@ class Mode:
     """
     Print mode
     """
-    print("l={:d}, n={:2d}, freq={:.3f} +- {:.2e} (muHz)".format(int(self.l), int(self.n), self.value, self.sigma))
+    print("l={:d}, n={:2d}, freq={:8.3f} +- {:.2e} (muHz)".format(int(self.l), int(self.n), self.value, self.sigma))
     
   def __str__(self):
     """
@@ -167,9 +189,17 @@ def get_freq(freqfile:str,idxlist={'l':0,'n':1,'freq':2,'sigma':3},target=None):
     lines = f.readlines()
     # Last condition ignores any line starting with anything else than a number
     if target != None:
-        modes = [Mode(float(line.split()[idxlist['n']]),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for line in lines if (ord(line.lstrip()[0]) in range(48,58) and (int(line.split()[idxlist['l']]),int(line.split()[idxlist['n']])) in target)]
+        if 'n' in idxlist:
+            modes = [Mode(float(line.split()[idxlist['n']]),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for line in lines if (ord(line.lstrip()[0]) in range(48,58) and (int(line.split()[idxlist['l']]),int(line.split()[idxlist['n']])) in target)]
+        else:
+            print('No radial order ID provided, will be assumed')
+            modes = [Mode(float(i),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for i,line in enumerate(lines) if (ord(line.lstrip()[0]) in range(48,58) and (int(line.split()[idxlist['l']]),int(i)) in target)]
     else:
-        modes = [Mode(float(line.split()[idxlist['n']]),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for line in lines if ord(line.lstrip()[0]) in range(48,58)]
+        if 'n' in idxlist:
+            modes = [Mode(float(line.split()[idxlist['n']]),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for line in lines if ord(line.lstrip()[0]) in range(48,58)]
+        else:
+            print('No radial order ID provided, will be assumed')
+            modes = [Mode(float(i),float(line.split()[idxlist['l']]),float(line.split()[idxlist['freq']]),float(line.split()[idxlist['sigma']])) for i,line in enumerate(lines) if ord(line.lstrip()[0]) in range(48,58)]
   sort_ln(modes)
   return modes
 
@@ -1082,6 +1112,7 @@ def optimise_tau(fitModes,modes):
   best = minimize_scalar(chi_of_tau,bracket=(0.75*config.T_He,1.25*config.T_He),bounds=(0.7*config.T_He,1.5*config.T_He),method='Bounded',args=(modes)) 
   return best.x
 
+
 def __init__():
   """
   Initialises WhoSGlAd
@@ -1099,18 +1130,6 @@ def __init__():
   else:
     prefix = prefix[0]
   config = Cfg()
-  here = pathlib.Path().resolve().as_posix()
-  whosPath = pathlib.Path(__file__).parent.resolve().as_posix()
-  try:
-    # Attempt to open the file
-    cfgFile = here+'/WhoSGlAd_cfg.py'
-    with open(cfgFile) as tmp:
-        config.read_cfg(cfgFile)
-  except FileNotFoundError:
-    print("Reading default configuration")
-    cfgFile = whosPath+'/WhoSGlAd_cfg.py'
-    with open(cfgFile) as tmp:
-        config.read_cfg(cfgFile)
   modes = get_freq(freqfile,config.idxlist,config.target_ln)
   print('Modes used for fitting:')
   for mode in modes:
@@ -1128,15 +1147,28 @@ def __run__(config,prefix,modes):
   chis,chiHe,chiHeCZ = fitModes.construct_whosglad_basis()
   fitModes.compute_indicators()
   if(config.T_Est):
-    config.T_He = lin_THe(fitModes.indicators['Dnu'].value,fitModes.indicators['r02'].value)
-    print()
-    print('With linear T_He estimate of {:e}'.format(config.T_He))
-    config.T_He = optimise_tau(fitModes,modes)
-    print()
-    print('With optimised T_He estimate of {:e}'.format(config.T_He))
-    fitModes.clean_basis()
-    chis,chiHe,chiHeCZ = fitModes.construct_whosglad_basis()
-    fitModes.compute_indicators()
+    if not config.target_ln is None:
+      l_list=list(set([l[0] for l in config.target_ln]))
+    else:
+      l_list = fitModes.find_l_list()
+    if 0 not in l_list or 2 not in l_list:
+        print('Cannot estimate T_He without both l=0 and 2')
+    elif fitModes.indicators['r02'].value <=0:
+        print('r02 is negative, T_He won t be properly estimated')
+    else:
+        lThe=lin_THe(fitModes.indicators['Dnu'].value,fitModes.indicators['r02'].value)
+        if lThe <= 0:
+            print('Estimated T_He negative, will be ignored')
+        else:
+            config.T_He = lThe
+        print()
+        print('With linear T_He estimate of {:e}'.format(config.T_He))
+        config.T_He = optimise_tau(fitModes,modes)
+        print()
+        print('With optimised T_He estimate of {:e}'.format(config.T_He))
+        fitModes.clean_basis()
+        chis,chiHe,chiHeCZ = fitModes.construct_whosglad_basis()
+        fitModes.compute_indicators()
   print()
   print('Fitted modes:')
   for fit in fitModes.fit:
