@@ -16,6 +16,8 @@
 ```
 
 This is the WhoSGlAd method (Farnir et al. 2019) implemented in python.
+> :memo: Note:
+> A fortran implementation exists and can be provided on request.
 
 ## Usage
 The WhoSGlAd module can be run as is from the terminal or imported to
@@ -50,7 +52,7 @@ The script pltutils.py defines some handy functions and the selection of
 colors to use. It is not essential and may easily be replaced.
 
 #### **WhoSGlAd_cfg.py**: Define WhoSGlAd's behavior
-- T_He and T_CZ: numerical value
+- *T_He and T_CZ*: float: numerical value
   The WhoSGlAd_cfg_py file contains the dimensionless depths of the 
   helium and convection zone glitches needed by WhoSGlAd to carry an 
   adjustment of the reference frequencies. These are defined in Farnir 
@@ -63,22 +65,14 @@ colors to use. It is not essential and may easily be replaced.
   we do not have it in the case of observations. Nevertheless, in the 
   case of the helium glitch it is easily circumvented Following Fanir et 
   al. 2023 providing an estimate in terms of observables.
-- T_est: boolean
-  Whether to use the automated estimated (Farnir et al. 2023) of T_He.
-- idxlist: dictionary
-  WhoSGlAd_cfg_py also specifies the ordering of the input frequncy 
-  file. It is provided as a dictionnary. Only 4 keywords are recognised:
-  - 'n': the radial order.
-  - 'l': the spherical degree.
-  - 'freq': the frequency value, assumed to be in micro Hz.
-  - 'sigma': the frequency uncertainty, assumed to be in micro Hz.
-- target_ln: array of l (spherical degree) and n (radial order) values
-  to be used in the adjustment (crucial to the definition of the basis)
-- plot: boolean
-  Whether to produce plots
-- save_plots: boolean 
-  Whether to save plots
-- show_plots: boolean
-  Whether to show plots
-- save_coefs: boolean
-  Whether to save akl (projection) coefficients
+- *T_est*: bool: Whether to use the automated estimated (Farnir et al. 2023) of T_He.
+- *idxlist*: dict: WhoSGlAd_cfg_py also specifies the ordering of the input frequncy file. It is provided as a dictionnary. Only 4 keywords are recognised:
+  - *n*: the radial order.
+  - *l*: the spherical degree.
+  - *freq*: the frequency value, assumed to be in micro Hz.
+  - *sigma*: the frequency uncertainty, assumed to be in micro Hz.
+- *target_ln*: [(int,int)]: array of l (spherical degree) and n (radial order) values to be used in the adjustment (crucial to the definition of the basis)
+- *plot*: bool: Whether to produce plots
+- *save_plots*: bool: Whether to save plots
+- *show_plots*: bool: Whether to show plots
+- *save_coefs*: bool: Whether to save akl (projection) coefficients
