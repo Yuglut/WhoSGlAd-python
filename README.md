@@ -1,4 +1,4 @@
-# WhoSGlAd: Whole Spectrum and Glitches Adjustment
+# WhoSGlAd: **Who**le **S**pectrum and **Gl**itches **Ad**justment
 
 ```
                                                                 ;
@@ -16,23 +16,28 @@
 ```
 
 This is the WhoSGlAd method (Farnir et al. 2019) implemented in python.
-The WhoSGlAd module can be run as is from tthe terminal or imported to
+
+## Usage
+The WhoSGlAd module can be run as is from the terminal or imported to
 be used by an external script. When executing from the terminal, the
 frequency file to analyse must be supplied as an argument: 
-./WhoSGlAd.py <freqfile>
+`./WhoSGlAd.py <freqfile>`
 
 ## Description of the files:
 
 #### **WhoSGlAd.py**: Main code
 The WhoSGlAd.py script automatically adjusts both the helium and base of
 the convection zone glitches, simultaneously with the smooth 
-contribution to the oscillation spectrum. Two plots are produced:
+contribution to the oscillation spectrum. 
+
+Two plots are produced:
 - <prefix>-echelle.pdf: The echelle diagram (nu vs nu%Delta nu) for both
   fitted and reference data. <prefix> being the prefix of the input 
   frequency file.
 - <prefix>-glitch.pdf: The extracted glitch from the reference data and
   a 'continuous' representation of the fitted glitch functions. <prefix> 
   being the prefix of the input frequency file.
+
 Two output text files are also produced:
 - <prefix>-fit.txt: The fitted and reference frequencies. <prefix> being
   the prefix of the input frequency file.
@@ -40,11 +45,11 @@ Two output text files are also produced:
   the WhoSGlAd method (Farnir et al. 2019). <prefix> being the prefix of
   the input frequency file.
 
-pltutils.py: Handy plooting functions and definitions
+#### **pltutils.py**: Handy plooting functions and definitions
 The script pltutils.py defines some handy functions and the selection of
 colors to use. It is not essential and may easily be replaced.
 
-WhoSGlAd_cfg.py: Define WhoSGlAd's behavior
+#### **WhoSGlAd_cfg.py**: Define WhoSGlAd's behavior
 - T_He and T_CZ: numerical value
   The WhoSGlAd_cfg_py file contains the dimensionless depths of the 
   helium and convection zone glitches needed by WhoSGlAd to carry an 
