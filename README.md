@@ -31,18 +31,18 @@ the convection zone glitches, simultaneously with the smooth
 contribution to the oscillation spectrum. 
 
 Two plots are produced:
-- <prefix>-echelle.pdf: The echelle diagram (nu vs nu%Delta nu) for both
-  fitted and reference data. <prefix> being the prefix of the input 
+- \<prefix\>-echelle.pdf: The echelle diagram (nu vs nu%Delta nu) for both
+  fitted and reference data. \<prefix\> being the prefix of the input 
   frequency file.
-- <prefix>-glitch.pdf: The extracted glitch from the reference data and
+- \<prefix\>-glitch.pdf: The extracted glitch from the reference data and
   a 'continuous' representation of the fitted glitch functions. <prefix> 
   being the prefix of the input frequency file.
 
 Two output text files are also produced:
-- <prefix>-fit.txt: The fitted and reference frequencies. <prefix> being
+- \<prefix\>-fit.txt: The fitted and reference frequencies. \<prefix\> being
   the prefix of the input frequency file.
-- <prefix>-indicators.txt: The computed seismic indicators defined with
-  the WhoSGlAd method (Farnir et al. 2019). <prefix> being the prefix of
+- \<prefix\>-indicators.txt: The computed seismic indicators defined with
+  the WhoSGlAd method (Farnir et al. 2019). \<prefix\> being the prefix of
   the input frequency file.
 
 #### **pltutils.py**: Handy plooting functions and definitions
