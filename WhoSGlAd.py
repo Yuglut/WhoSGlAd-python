@@ -13,6 +13,7 @@ import math
 #import WhoSGlAd_cfg as config
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib import rcParams
 from scipy.optimize import minimize_scalar
 import pathlib
 
@@ -33,8 +34,9 @@ class Cfg:
     save_plots=True # Whether to save plots
     show_plots=True # Whether to show plots
     save_coefs=False # Whether to save akl coefficients
+    plotParams={'axes.labelsize':20,'legend.fontsize': 10.5,'extension':'pdf','dpi':300}
 
-    def __init__(self,T_He=T_He,T_CZ=T_CZ,T_Est=T_Est,idxlist=idxlist,target_ln=target_ln,plot=plot,save_plots=save_plots,show_plots=show_plots,save_coefs=save_coefs):
+    def __init__(self,T_He=T_He,T_CZ=T_CZ,T_Est=T_Est,idxlist=idxlist,target_ln=target_ln,plot=plot,save_plots=save_plots,show_plots=show_plots,save_coefs=save_coefs,plotParams=plotParams):
         self.T_He       = T_He
         self_T_CZ       = T_CZ
         self.T_Est      = T_Est
@@ -44,6 +46,7 @@ class Cfg:
         self.save_plots = save_plots
         self.show_plots = show_plots
         self.save_coefs = save_coefs
+        self.plotParams = plotParams
         self.parse_cfg()
 
     def read_cfg(self,cfgFile):
@@ -76,6 +79,11 @@ class Cfg:
             self.show_plots = val == 'True'
         elif key == 'save_coefs':
             self.save_coefs = val == 'True' 
+        elif key == 'plotParams':
+            # Buffering avoid deleting key when missing from config
+            plotParams = eval(val)
+            for key in plotParams.keys():
+                self.plotParams[key] = plotParams[key]
         else:
             print('set_cfg: Unrecognised key: {:s}'.format(keys[0]))
 
@@ -803,7 +811,7 @@ class Seismic:
         f.writelines(lines)
 
 
-  def echelle(self,l_targets=None,colors=pltu.colors,prefix='results',save=True):
+  def echelle(self,l_targets=None,colors=pltu.colors,prefix='results',save=True,plotParams={'extension':'pdf','dpi':300}):
     """"
     Plot the echelle diagram
        
@@ -845,12 +853,13 @@ class Seismic:
       legend_elements = [Line2D([0], [0], marker='o',color='w',label='Ref',markeredgecolor='k',markerfacecolor='none',markersize=mks,lw=lw)] \
       + [Line2D([0], [0], marker='d',color='w',label='Fit',markeredgecolor='k',markerfacecolor='none',markersize=mks,lw=lw)] \
       + [Line2D([0], [0], marker='o', color='w', label='l={:d}'.format(int(l)),markeredgecolor=colors[i],markerfacecolor='none', markersize=mks,lw=lw) for i,l in enumerate(l_list)]
-    ax.legend(handles=legend_elements,ncol=1,loc=0,fontsize=10.)
+    ax.legend(handles=legend_elements,ncol=1,loc=0)
     fig.tight_layout()
     if save:
-      fig.savefig(prefix+'-echelle.'+pltu.ext,dpi=pltu.dpi)
+      fig.savefig(prefix+'-echelle.'+plotParams['extension'],dpi=plotParams['dpi'])
+      print('Echelle diagram saved to '+prefix+'-echelle.'+plotParams['extension'])
 
-  def glitch(self,l_targets=None,maxpower=2,glitchpower=-5,npt=100,colors=pltu.colors,prefix='results',save=True):
+  def glitch(self,l_targets=None,maxpower=2,glitchpower=-5,npt=100,colors=pltu.colors,prefix='results',save=True,plotParams={'extension':'pdf','dpi':300}):
     """"
     Plot the isolated glitch
        
@@ -971,9 +980,10 @@ class Seismic:
     ax.legend()
     fig.tight_layout()
     if save:
-      fig.savefig(prefix+'-glitch.'+pltu.ext,dpi=pltu.dpi)
+      fig.savefig(prefix+'-glitch.'+plotParams['extension'],dpi=plotParams['dpi'])
+      print('Glitch plot saved to '+prefix+'-glitch.'+plotParams['extension'])
 
-  def plot(self,l_targets=None,colors=pltu.colors,prefix='results',save=True,show=True):
+  def plot(self,l_targets=None,colors=pltu.colors,prefix='results',save=True,show=True,plotParams={'extension':'pdf','dpi':300}):
     """
     Call all the plotting functions
        
@@ -992,8 +1002,8 @@ class Seismic:
     :param show: Whether to show plots
     :type show: bool
     """
-    self.echelle(l_targets,colors=colors,prefix=prefix,save=save)
-    self.glitch(l_targets,colors=colors,prefix=prefix,save=save)
+    self.echelle(l_targets,colors=colors,prefix=prefix,save=save,plotParams=plotParams)
+    self.glitch(l_targets,colors=colors,prefix=prefix,save=save,plotParams=plotParams)
     if show: 
       plt.show()
     plt.close()
@@ -1178,7 +1188,10 @@ def __run__(config,prefix,modes):
   fitModes.print_indicators(prefix=prefix,save=True)
   fitModes.print_akl(prefix=prefix,save=config.save_coefs)
   if config.plot:
-    fitModes.plot(l_targets=None,colors=pltu.colors,prefix=prefix,save=config.save_plots,show=config.show_plots)
+    for key in config.plotParams.keys():
+        if key in rcParams.keys():
+            rcParams[key] = config.plotParams[key]
+    fitModes.plot(l_targets=None,colors=pltu.colors,prefix=prefix,save=config.save_plots,show=config.show_plots,plotParams=config.plotParams)
   return fitModes
 
 if __name__ == '__main__':

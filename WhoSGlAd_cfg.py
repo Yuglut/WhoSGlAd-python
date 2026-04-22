@@ -44,3 +44,4 @@ plot=True # Whether to produce plots
 save_plots=True # Whether to save plots
 show_plots=True # Whether to show plots
 save_coefs=False # Whether to save akl coefficients
+plotParams={'axes.labelsize':24,'extension':'png','legend.fontsize': 16,'dpi':300} # Parameters for the plot. Recognises matplotlib.rcParams keywords + a few extras: dpi - the resolution at which the file is saved, extension - extension of the saved file 
